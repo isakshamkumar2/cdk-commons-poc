@@ -7,6 +7,4 @@ def hello():
     return 'Hello, World!'
 
 if __name__ == '__main__':
-    print("Starting Flask app...")
     app.run(host='0.0.0.0', port=5000)
-    print("Flask app has stopped.")

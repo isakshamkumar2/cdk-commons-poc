@@ -1,0 +1,80 @@
+name: Deploy CDK Stack with Flask App
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r flask-app/requirements.txt
+
+    - name: Install CDK dependencies
+      working-directory: ./cdk-app
+      run: |
+        npm install -g aws-cdk
+        npm ci
+
+    - name: Build wheel files
+      run: |
+        cd flask-app
+        pip wheel -r requirements.txt -w wheels/
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Synthesize CDK stack
+      working-directory: ./cdk-app
+      run: cdk synth
+      id: synth
+
+    - name: Deploy CDK stack
+      if: steps.synth.outcome == 'success'
+      working-directory: ./cdk-app
+      run: cdk deploy --require-approval never
+      id: deploy
+
+    - name: Wait for deployment to stabilize
+      if: steps.deploy.outcome == 'success'
+      run: sleep 60
+# This is the debugging step, we can remove in production
+
+    - name: Test Flask application
+      if: steps.deploy.outcome == 'success'
+      run: |
+        LOAD_BALANCER_DNS=$(aws cloudformation describe-stacks --stack-name CdkAppStack --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDNS'].OutputValue" --output text)
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${LOAD_BALANCER_DNS})
+        if [ $HTTP_STATUS -eq 200 ]; then
+          echo "Flask application is responding correctly."
+        else
+          echo "Flask application is not responding as expected. HTTP status: $HTTP_STATUS"
+          exit 1
+        fi
+
+    - name: Cleanup on failure
+      if: steps.synth.outcome == 'success' && steps.deploy.outcome == 'failure'
+      working-directory: ./cdk-app
+      run: cdk destroy --force
