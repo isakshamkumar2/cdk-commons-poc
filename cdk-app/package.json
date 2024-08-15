@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@genflowly/cdk-commons": "^0.1.8",
-    "@isakshamkumar2/cdk-common-test": "^0.1.8",
     "aws-cdk-lib": "2.150.0",
     "constructs": "^10.0.0",
     "source-map-support": "^0.5.21"
